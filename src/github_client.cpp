@@ -178,16 +178,15 @@ RepoInfo GitHubClient::parse_repo_info(const std::string& json_str) {
 }
 
 bool GitHubClient::matches_filter(const RepoInfo& repo, const RepoFilter& filter) {
-    // Check explicit include list first
-    if (!filter.include_repos.empty()) {
-        if (filter.include_repos.find(repo.name) == filter.include_repos.end()) {
-            return false;
-        }
-    }
-
-    // Check explicit exclude list
+    // Check explicit exclude list first (always applies)
     if (filter.exclude_repos.find(repo.name) != filter.exclude_repos.end()) {
         return false;
+    }
+
+    // If repo is explicitly included, skip other filters (additive behavior)
+    if (!filter.include_repos.empty() &&
+        filter.include_repos.find(repo.name) != filter.include_repos.end()) {
+        return true;
     }
 
     // Check archived
@@ -277,35 +276,43 @@ RepoInfo GitHubClient::fetch_repo_info(const std::string& repo_name) {
 
 std::vector<RepoInfo> GitHubClient::list_repos_detailed(const RepoFilter& filter) {
     std::vector<RepoInfo> repos;
+    std::set<std::string> seen_repos;  // Track repos to avoid duplicates
 
-    // Optimization: if include_repos is set, fetch those repos directly
-    // instead of scanning all org repos (much faster for large orgs)
+    // First, fetch any explicitly included repos directly
+    // (these bypass other filters except exclude_repos)
     if (!filter.include_repos.empty()) {
         for (const auto& repo_name : filter.include_repos) {
+            // Check exclude list
+            if (filter.exclude_repos.find(repo_name) != filter.exclude_repos.end()) {
+                continue;
+            }
+
             try {
                 RepoInfo info = fetch_repo_info(repo_name);
+                repos.push_back(info);
+                seen_repos.insert(info.name);
 
-                // Create a filter without include_repos for other checks
-                RepoFilter other_filters = filter;
-                other_filters.include_repos.clear();
-
-                if (matches_filter(info, other_filters)) {
-                    repos.push_back(info);
-
-                    if (filter.max_repos > 0 &&
-                        static_cast<int>(repos.size()) >= filter.max_repos) {
-                        return repos;
-                    }
+                if (filter.max_repos > 0 &&
+                    static_cast<int>(repos.size()) >= filter.max_repos) {
+                    return repos;
                 }
             } catch (const std::exception& e) {
-                // Repo not found or error - skip it
                 std::cerr << "Warning: Could not fetch repo '" << repo_name << "': " << e.what() << std::endl;
             }
         }
+    }
+
+    // Check if we have any filters that require scanning org repos
+    bool has_scan_filters = !filter.languages.empty() || !filter.topics.empty() ||
+                            filter.active_days > 0 || filter.min_stars > 0;
+
+    // If no scan filters and we have include_repos, we're done
+    if (!has_scan_filters && !filter.include_repos.empty()) {
         return repos;
     }
 
-    // Standard path: scan org repos with pagination
+    // If no scan filters and no include_repos, scan all repos (respecting max_repos)
+    // Otherwise scan with filters
     std::string endpoint = "/orgs/" + org_ + "/repos?per_page=100&type=all";
 
     int page = 0;
@@ -325,6 +332,12 @@ std::vector<RepoInfo> GitHubClient::list_repos_detailed(const RepoFilter& filter
             for (const auto& repo_json : repo_list) {
                 RepoInfo info;
                 info.name = repo_json.value("name", "");
+
+                // Skip if already added from include_repos
+                if (seen_repos.find(info.name) != seen_repos.end()) {
+                    continue;
+                }
+
                 // language can be null for repos with no detected language
                 if (repo_json.contains("language") && !repo_json["language"].is_null()) {
                     info.language = repo_json["language"].get<std::string>();
@@ -342,6 +355,7 @@ std::vector<RepoInfo> GitHubClient::list_repos_detailed(const RepoFilter& filter
 
                 if (matches_filter(info, filter)) {
                     repos.push_back(info);
+                    seen_repos.insert(info.name);
 
                     // Check max repos limit
                     if (filter.max_repos > 0 &&
