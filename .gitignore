@@ -21,3 +21,7 @@ build/
 
 # Test artifacts
 test_*.db
+
+# User config
+.claude/
+.mcp.json
