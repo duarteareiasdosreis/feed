@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "feed": {
+      "command": "/Users/duartereis/git/feed/build/feed_mcp"
+    }
+  }
+}

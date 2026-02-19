@@ -477,7 +477,7 @@ std::string find_similar(const std::string& query, int top_k) {
     }
 }
 
-std::string get_tagged(const std::string& tag, int days) {
+std::string get_tagged(const std::string& tag, int days, int limit) {
     if (tag.empty()) {
         return make_error("Tag name is required");
     }
@@ -497,7 +497,7 @@ std::string get_tagged(const std::string& tag, int days) {
 
     try {
         Storage db(config::DEFAULT_DB_PATH);
-        return api::get_tagged_commits(db, tag, days);
+        return api::get_tagged_commits(db, tag, days, limit);
     } catch (const std::exception& e) {
         return make_error(e.what());
     }

@@ -62,7 +62,7 @@ std::string find_similar(const std::string& query, int top_k = 5);
 
 // Get commits by tag
 // Returns: {"commits": [...], "tag": "...", "days": N, "count": N}
-std::string get_tagged(const std::string& tag, int days = 7);
+std::string get_tagged(const std::string& tag, int days = 7, int limit = 20);
 
 // Get repository activity summary
 // Returns: {"repo": "...", "total_commits": N, "top_authors": [...], ...}

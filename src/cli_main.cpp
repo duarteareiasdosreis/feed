@@ -268,8 +268,9 @@ int cmd_tagged(const std::vector<std::string>& args) {
 
     std::string tag = args[2];
     int days = std::stoi(get_arg_value(args, "--days", "7"));
+    int limit = std::stoi(get_arg_value(args, "--limit", "20"));
 
-    std::string result = feed::commands::get_tagged(tag, days);
+    std::string result = feed::commands::get_tagged(tag, days, limit);
     return handle_result(result);
 }
 

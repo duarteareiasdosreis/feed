@@ -27,7 +27,8 @@ std::string find_similar_commits(Storage& db,
 // Returns JSON array of commits
 std::string get_tagged_commits(Storage& db,
                                 const std::string& tag,
-                                int days = 7);
+                                int days = 7,
+                                int limit = 20);
 
 // Get activity summary for a repository
 // Returns JSON object with commit statistics

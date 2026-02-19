@@ -91,18 +91,23 @@ std::string find_similar_commits(Storage& db, SearchEngine& engine,
     }
 }
 
-std::string get_tagged_commits(Storage& db, const std::string& tag, int days) {
+std::string get_tagged_commits(Storage& db, const std::string& tag, int days, int limit) {
     try {
         auto commits = db.get_commits_by_tag(tag, days);
 
         json result;
         result["commits"] = json::array();
+        int count = 0;
         for (const auto& c : commits) {
+            if (limit > 0 && count >= limit) break;
             result["commits"].push_back(commit_to_json(c));
+            count++;
         }
         result["tag"] = tag;
         result["days"] = days;
-        result["count"] = commits.size();
+        result["limit"] = limit;
+        result["count"] = count;
+        result["total_matching"] = commits.size();
 
         return result.dump(2);
     } catch (const std::exception& e) {
