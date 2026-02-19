@@ -1,0 +1,23 @@
+# Build
+build/
+*.o
+*.a
+
+# Databases
+*.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.cache/
+
+# Config files with secrets
+.feed_config
+
+# macOS
+.DS_Store
+
+# Test artifacts
+test_*.db
