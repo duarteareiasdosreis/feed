@@ -6,6 +6,17 @@ This document describes the Model Context Protocol (MCP) interface for Feed, all
 
 Feed exposes its functionality as MCP tools that can be called by AI assistants like Claude. The MCP server communicates via stdio using JSON-RPC 2.0.
 
+## Recommended Workflow
+
+For MCP clients, follow this sequence:
+
+1. **Check configuration**: Call `get_config` to see if feed is initialized
+2. **Initialize if needed**: If not initialized, call `init_feed` with the user's GitHub organization
+3. **Sync commits**: Call `sync_commits` to fetch commits from GitHub
+4. **Query data**: Use `get_recent_commits`, `find_similar_commits`, `get_tagged_commits`, or `get_repo_summary`
+
+**Important:** Use small limits (10) for initial queries to avoid large responses that fill context.
+
 ## Setup
 
 ### 1. Build the MCP Server
@@ -18,15 +29,15 @@ This builds two executables:
 - `build/feed` - CLI tool for manual use
 - `build/feed_mcp` - MCP server for AI assistants
 
-### 2. Initialize Feed (required first)
+### 2. Set GitHub Token
 
-Before using the MCP server, initialize Feed with your organization:
+The MCP server needs a GitHub token via environment variable:
 
 ```bash
 export GITHUB_FEED_TOKEN=ghp_xxx
-./build/feed init --org myorg --language go --max-repos 50
-./build/feed sync
 ```
+
+**Note:** Initialization can be done via CLI or through the MCP `init_feed` tool.
 
 ### 3. Configure Claude Desktop
 
@@ -64,7 +75,7 @@ echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_availa
 
 ### get_recent_commits
 
-Get recent commits, optionally filtered by repository.
+Get recent commits, optionally filtered by repository. **Use limit=10 for initial queries to avoid large responses.**
 
 **Input Schema:**
 ```json
@@ -73,12 +84,12 @@ Get recent commits, optionally filtered by repository.
   "properties": {
     "repo": {
       "type": "string",
-      "description": "Repository name to filter by (optional)"
+      "description": "Repository name to filter by (recommended to reduce response size)"
     },
     "limit": {
       "type": "integer",
-      "description": "Maximum number of commits to return",
-      "default": 50
+      "description": "Max commits to return. Start with 10, increase if needed.",
+      "default": 10
     }
   }
 }
@@ -107,7 +118,7 @@ Get recent commits, optionally filtered by repository.
 
 ### find_similar_commits
 
-Find commits with similar messages using TF-IDF semantic search.
+Find commits with similar messages using TF-IDF semantic search. Returns top matches ranked by similarity.
 
 **Input Schema:**
 ```json
@@ -120,7 +131,7 @@ Find commits with similar messages using TF-IDF semantic search.
     },
     "top_k": {
       "type": "integer",
-      "description": "Number of results to return",
+      "description": "Number of results (keep low: 3-5 recommended)",
       "default": 5
     }
   },
@@ -152,7 +163,7 @@ Find commits with similar messages using TF-IDF semantic search.
 
 ### get_tagged_commits
 
-Get commits with a specific classification tag.
+Get commits with a specific classification tag. **Use small values for days (7) and limit (10) to avoid large responses.**
 
 **Input Schema:**
 ```json
@@ -178,8 +189,13 @@ Get commits with a specific classification tag.
     },
     "days": {
       "type": "integer",
-      "description": "Look back period in days",
+      "description": "Look back period in days (default 7, max recommended 14)",
       "default": 7
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Max commits to return (default 10, increase only if needed)",
+      "default": 10
     }
   },
   "required": ["tag"]
@@ -208,9 +224,9 @@ Get commits with a specific classification tag.
 
 ---
 
-### get_repo_activity_summary
+### get_repo_summary
 
-Get activity summary and statistics for a repository.
+Get activity summary and statistics for a repository. Lightweight - returns aggregated stats, not full commits.
 
 **Input Schema:**
 ```json
@@ -254,6 +270,91 @@ Get activity summary and statistics for a repository.
 
 ---
 
+### init_feed
+
+Initialize feed with a GitHub organization. **Required before sync_commits.**
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "org": {
+      "type": "string",
+      "description": "GitHub organization name (required)"
+    },
+    "languages": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Filter by programming languages (e.g., ['go', 'python'])"
+    },
+    "max_repos": {
+      "type": "integer",
+      "description": "Maximum repositories to track (recommended: 10-50)",
+      "default": 50
+    },
+    "include_repos": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Specific repo names to include"
+    },
+    "active_days": {
+      "type": "integer",
+      "description": "Only repos with commits in last N days",
+      "default": 0
+    }
+  },
+  "required": ["org"]
+}
+```
+
+**Example Response:**
+```json
+{
+  "success": true,
+  "org": "myorg",
+  "db_path": "commits.db",
+  "token_source": "environment_variable",
+  "languages": ["go", "python"],
+  "max_repos": 50
+}
+```
+
+---
+
+### get_config
+
+Get current feed configuration. **Call this first to check if feed is initialized.** If error "Not initialized", use `init_feed` to set up.
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+**Example Response:**
+```json
+{
+  "org": "myorg",
+  "token": "***from GITHUB_FEED_TOKEN env***",
+  "filter": {
+    "languages": ["go"],
+    "topics": [],
+    "include_repos": ["api-server"],
+    "exclude_repos": [],
+    "active_days": 0,
+    "max_repos": 50,
+    "min_stars": 0,
+    "include_archived": false,
+    "include_forks": true
+  }
+}
+```
+
+---
+
 ### get_available_tags
 
 List all available classification tags.
@@ -287,9 +388,41 @@ List all available classification tags.
 
 ---
 
+### list_repos
+
+List repositories matching the current filter configuration.
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+**Example Response:**
+```json
+{
+  "count": 3,
+  "repositories": [
+    {
+      "name": "api-server",
+      "language": "Go",
+      "stars": 45,
+      "topics": ["backend", "api"],
+      "last_push": "2024-01-15T10:30:00Z",
+      "fork": false,
+      "archived": false
+    }
+  ]
+}
+```
+
+---
+
 ### sync_commits
 
-Trigger a sync to fetch new commits from GitHub.
+Trigger a sync to fetch new commits from GitHub. **Requires `init_feed` to be called first.**
 
 **Input Schema:**
 ```json
@@ -312,7 +445,7 @@ Trigger a sync to fetch new commits from GitHub.
 
 ---
 
-### rebuild_search_index
+### rebuild_index
 
 Rebuild the TF-IDF search index. Use after bulk imports or if search quality degrades.
 
