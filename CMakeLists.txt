@@ -41,9 +41,9 @@ target_link_libraries(feed
     feed_core
 )
 
-# MCP wrapper (separate target for future use)
-add_library(feed_mcp STATIC
-    mcp/mcp_wrapper.cpp
+# MCP server executable
+add_executable(feed_mcp
+    mcp/mcp_server.cpp
 )
 
 target_include_directories(feed_mcp
@@ -54,7 +54,7 @@ target_include_directories(feed_mcp
 
 target_link_libraries(feed_mcp
     PRIVATE
-    SQLite::SQLite3
+    feed_core
 )
 
 # Testing

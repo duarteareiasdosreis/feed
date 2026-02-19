@@ -14,7 +14,21 @@ Feed exposes its functionality as MCP tools that can be called by AI assistants 
 make build
 ```
 
-### 2. Configure Claude Desktop
+This builds two executables:
+- `build/feed` - CLI tool for manual use
+- `build/feed_mcp` - MCP server for AI assistants
+
+### 2. Initialize Feed (required first)
+
+Before using the MCP server, initialize Feed with your organization:
+
+```bash
+export GITHUB_FEED_TOKEN=ghp_xxx
+./build/feed init --org myorg --language go --max-repos 50
+./build/feed sync
+```
+
+### 3. Configure Claude Desktop
 
 Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
@@ -22,7 +36,7 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 {
   "mcpServers": {
     "feed": {
-      "command": "/path/to/feed/build/feed_mcp",
+      "command": "/absolute/path/to/feed/build/feed_mcp",
       "env": {
         "GITHUB_FEED_TOKEN": "your_github_token"
       }
@@ -31,14 +45,19 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 }
 ```
 
-### 3. Initialize Feed
+### 4. Test the MCP Server
 
-Before using the MCP server, initialize Feed with your organization:
+You can test the server manually:
 
 ```bash
-export GITHUB_FEED_TOKEN=ghp_xxx
-./build/feed init --org myorg --language go --max-repos 50
-./build/feed sync
+# Test initialize
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | ./build/feed_mcp
+
+# Test list tools
+echo '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | ./build/feed_mcp
+
+# Test call a tool
+echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_available_tags","arguments":{}}}' | ./build/feed_mcp
 ```
 
 ## Available Tools
