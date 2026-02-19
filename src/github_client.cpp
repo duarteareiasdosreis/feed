@@ -158,7 +158,10 @@ RepoInfo GitHubClient::parse_repo_info(const std::string& json_str) {
     json repo = json::parse(json_str);
 
     info.name = repo.value("name", "");
-    info.language = repo.value("language", "");
+    // language can be null for repos with no detected language
+    if (repo.contains("language") && !repo["language"].is_null()) {
+        info.language = repo["language"].get<std::string>();
+    }
     info.pushed_at = repo.value("pushed_at", "");
     info.archived = repo.value("archived", false);
     info.fork = repo.value("fork", false);
@@ -267,7 +270,10 @@ std::vector<RepoInfo> GitHubClient::list_repos_detailed(const RepoFilter& filter
             for (const auto& repo_json : repo_list) {
                 RepoInfo info;
                 info.name = repo_json.value("name", "");
-                info.language = repo_json.value("language", "");
+                // language can be null for repos with no detected language
+                if (repo_json.contains("language") && !repo_json["language"].is_null()) {
+                    info.language = repo_json["language"].get<std::string>();
+                }
                 info.pushed_at = repo_json.value("pushed_at", "");
                 info.archived = repo_json.value("archived", false);
                 info.fork = repo_json.value("fork", false);
