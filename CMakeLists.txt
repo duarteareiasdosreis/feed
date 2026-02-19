@@ -15,13 +15,14 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/third_party
 )
 
-# Core library (shared between main executable and tests)
+# Core library (shared between CLI, MCP server, and tests)
 set(CORE_SOURCES
     src/storage.cpp
     src/github_client.cpp
     src/classifier.cpp
     src/search.cpp
     src/api.cpp
+    src/commands.cpp
 )
 
 add_library(feed_core STATIC ${CORE_SOURCES})
@@ -32,8 +33,8 @@ target_link_libraries(feed_core
     SQLite::SQLite3
 )
 
-# Main executable
-add_executable(feed src/main.cpp)
+# CLI executable
+add_executable(feed src/cli_main.cpp)
 
 target_link_libraries(feed
     PRIVATE
