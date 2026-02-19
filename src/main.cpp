@@ -2,6 +2,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include <set>
 #include <cstdlib>
 #include <sstream>
 #include <nlohmann/json.hpp>
@@ -518,6 +519,20 @@ int cmd_sync(const std::vector<std::string>& args) {
 
     auto repos = client.list_repos(filter);
     std::cout << "Found " << repos.size() << " repositories matching filters" << std::endl;
+
+    // Purge commits from repos no longer in the tracked list
+    std::set<std::string> tracked_repos(repos.begin(), repos.end());
+    auto stored_repos = db.get_stored_repos();
+    int purged_commits = 0;
+    for (const auto& stored_repo : stored_repos) {
+        if (tracked_repos.find(stored_repo) == tracked_repos.end()) {
+            int deleted = db.delete_commits_for_repo(stored_repo);
+            if (deleted > 0) {
+                std::cout << "Purged " << deleted << " commits from removed repo: " << stored_repo << std::endl;
+                purged_commits += deleted;
+            }
+        }
+    }
 
     if (repos.empty()) {
         std::cout << "No repositories to sync." << std::endl;

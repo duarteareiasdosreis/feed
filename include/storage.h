@@ -53,6 +53,10 @@ public:
     int get_commit_count(const std::string& repo = "");
     int get_commit_count_since(const std::string& repo, int days);
 
+    // Cleanup
+    std::vector<std::string> get_stored_repos();  // Get list of repos with commits in DB
+    int delete_commits_for_repo(const std::string& repo);  // Returns number of commits deleted
+
     // Vocabulary persistence
     void save_vocabulary(const std::string& vocab_json);
     std::string load_vocabulary();

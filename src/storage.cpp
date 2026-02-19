@@ -483,4 +483,47 @@ std::string Storage::load_idf_scores() {
     return result;
 }
 
+std::vector<std::string> Storage::get_stored_repos() {
+    const char* sql = "SELECT DISTINCT repo_name FROM commits ORDER BY repo_name";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        throw std::runtime_error("Failed to prepare statement");
+    }
+
+    std::vector<std::string> repos;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char* name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        if (name) repos.push_back(name);
+    }
+
+    sqlite3_finalize(stmt);
+    return repos;
+}
+
+int Storage::delete_commits_for_repo(const std::string& repo) {
+    const char* sql = "DELETE FROM commits WHERE repo_name = ?";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        throw std::runtime_error("Failed to prepare statement");
+    }
+
+    sqlite3_bind_text(stmt, 1, repo.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    int deleted = sqlite3_changes(db_);
+
+    // Also remove from fetch_state
+    const char* sql2 = "DELETE FROM fetch_state WHERE repo_name = ?";
+    if (sqlite3_prepare_v2(db_, sql2, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, repo.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+
+    return deleted;
+}
+
 }  // namespace feed
