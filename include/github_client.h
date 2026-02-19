@@ -86,6 +86,9 @@ private:
     // Parse repository JSON into RepoInfo
     RepoInfo parse_repo_info(const std::string& json_str);
 
+    // Fetch info for a single repo by name
+    RepoInfo fetch_repo_info(const std::string& repo_name);
+
     // Check if repo passes filter criteria
     bool matches_filter(const RepoInfo& repo, const RepoFilter& filter);
 

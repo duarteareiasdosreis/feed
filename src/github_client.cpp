@@ -10,6 +10,7 @@
 #include <ctime>
 #include <iomanip>
 #include <sstream>
+#include <iostream>
 
 namespace feed {
 
@@ -249,8 +250,62 @@ bool GitHubClient::matches_filter(const RepoInfo& repo, const RepoFilter& filter
     return true;
 }
 
+RepoInfo GitHubClient::fetch_repo_info(const std::string& repo_name) {
+    std::string endpoint = "/repos/" + org_ + "/" + repo_name;
+    std::string response = api_request(endpoint);
+
+    json repo_json = json::parse(response);
+
+    RepoInfo info;
+    info.name = repo_json.value("name", "");
+    if (repo_json.contains("language") && !repo_json["language"].is_null()) {
+        info.language = repo_json["language"].get<std::string>();
+    }
+    info.pushed_at = repo_json.value("pushed_at", "");
+    info.archived = repo_json.value("archived", false);
+    info.fork = repo_json.value("fork", false);
+    info.stargazers_count = repo_json.value("stargazers_count", 0);
+
+    if (repo_json.contains("topics") && repo_json["topics"].is_array()) {
+        for (const auto& topic : repo_json["topics"]) {
+            info.topics.push_back(topic.get<std::string>());
+        }
+    }
+
+    return info;
+}
+
 std::vector<RepoInfo> GitHubClient::list_repos_detailed(const RepoFilter& filter) {
     std::vector<RepoInfo> repos;
+
+    // Optimization: if include_repos is set, fetch those repos directly
+    // instead of scanning all org repos (much faster for large orgs)
+    if (!filter.include_repos.empty()) {
+        for (const auto& repo_name : filter.include_repos) {
+            try {
+                RepoInfo info = fetch_repo_info(repo_name);
+
+                // Create a filter without include_repos for other checks
+                RepoFilter other_filters = filter;
+                other_filters.include_repos.clear();
+
+                if (matches_filter(info, other_filters)) {
+                    repos.push_back(info);
+
+                    if (filter.max_repos > 0 &&
+                        static_cast<int>(repos.size()) >= filter.max_repos) {
+                        return repos;
+                    }
+                }
+            } catch (const std::exception& e) {
+                // Repo not found or error - skip it
+                std::cerr << "Warning: Could not fetch repo '" << repo_name << "': " << e.what() << std::endl;
+            }
+        }
+        return repos;
+    }
+
+    // Standard path: scan org repos with pagination
     std::string endpoint = "/orgs/" + org_ + "/repos?per_page=100&type=all";
 
     int page = 0;
