@@ -24,20 +24,25 @@ feed - Engineering Intelligence Tool
 Usage: feed <command> [options]
 
 Commands:
-  init --org <org> --token <token> [filters]  Initialize with GitHub organization
-  sync                                         Sync commits from filtered repositories
-  list-repos                                   List repositories matching current filters
-  add-repo <repo> [repo2] ...                  Add repo(s) to the include list
-  remove-repo <repo> [repo2] ...               Remove repo(s) from the include list
-  recent [--repo <name>] [--limit N]          List recent commits
-  similar "<query>" [--top N]                 Find similar commits
-  tagged <tag> [--days N]                     Get commits by classification tag
-  summary <repo> [--days N]                   Get repository activity summary
-  rebuild                                     Rebuild search index
-  tags                                        List available classification tags
-  config                                      Show current configuration
+  init --org <org> [--token <token>] [filters]  Initialize with GitHub organization
+  sync                                           Sync commits from filtered repositories
+  list-repos                                     List repositories matching current filters
+  add-repo <repo> [repo2] ...                    Add repo(s) to the include list
+  remove-repo <repo> [repo2] ...                 Remove repo(s) from the include list
+  recent [--repo <name>] [--limit N]            List recent commits
+  similar "<query>" [--top N]                   Find similar commits
+  tagged <tag> [--days N]                       Get commits by classification tag
+  summary <repo> [--days N]                     Get repository activity summary
+  rebuild                                       Rebuild search index
+  tags                                          List available classification tags
+  config                                        Show current configuration
+
+Environment Variables:
+  GITHUB_TOKEN          GitHub personal access token (recommended for security)
+                        If set, --token argument becomes optional
 
 Filter Options (for init):
+  --token <token>       GitHub token (optional if GITHUB_TOKEN env var is set)
   --language <lang>     Filter by language (can specify multiple: --language go --language python)
   --topic <topic>       Filter by GitHub topic (can specify multiple)
   --include <repo>      Only sync specific repos (can specify multiple)
@@ -49,14 +54,18 @@ Filter Options (for init):
   --include-archived    Include archived repositories
 
 Examples:
-  # Initialize with language filter
+  # Initialize using GITHUB_TOKEN environment variable (recommended)
+  export GITHUB_TOKEN=ghp_xxx
+  feed init --org myorg --language go --language rust --max-repos 50
+
+  # Initialize with explicit token (stored in config file)
   feed init --org myorg --token ghp_xxx --language go --language rust --max-repos 50
 
   # Initialize with topic filter
-  feed init --org myorg --token ghp_xxx --topic backend --active-days 30
+  feed init --org myorg --topic backend --active-days 30
 
   # Initialize with specific repos only
-  feed init --org myorg --token ghp_xxx --include api-server --include web-client
+  feed init --org myorg --include api-server --include web-client
 
   # Add more repos to the include list later
   feed add-repo another-repo yet-another-repo
@@ -85,6 +94,11 @@ std::string get_config_path() {
     return feed::config::CONFIG_FILE;
 }
 
+std::string get_token_from_env() {
+    const char* token = std::getenv("GITHUB_TOKEN");
+    return token ? token : "";
+}
+
 bool load_config(std::string& org, std::string& token, feed::RepoFilter& filter) {
     std::ifstream file(get_config_path());
     if (!file.is_open()) {
@@ -96,6 +110,11 @@ bool load_config(std::string& org, std::string& token, feed::RepoFilter& filter)
         file >> config;
         org = config.value("org", "");
         token = config.value("token", "");
+
+        // Fall back to environment variable if token not in config
+        if (token.empty()) {
+            token = get_token_from_env();
+        }
 
         if (config.contains("filter")) {
             const auto& f = config["filter"];
@@ -134,7 +153,7 @@ bool load_config(std::string& org, std::string& token, feed::RepoFilter& filter)
 }
 
 bool save_config(const std::string& org, const std::string& token,
-                 const feed::RepoFilter& filter) {
+                 const feed::RepoFilter& filter, bool store_token = true) {
     std::ofstream file(get_config_path());
     if (!file.is_open()) {
         return false;
@@ -142,7 +161,13 @@ bool save_config(const std::string& org, const std::string& token,
 
     json config;
     config["org"] = org;
-    config["token"] = token;
+
+    // Only store token if explicitly provided (not from env var)
+    if (store_token && !token.empty()) {
+        config["token"] = token;
+    } else {
+        config["token"] = "";  // Empty string signals to use env var
+    }
 
     json f;
     f["languages"] = std::vector<std::string>(filter.languages.begin(), filter.languages.end());
@@ -229,15 +254,29 @@ feed::RepoFilter parse_filter_args(const std::vector<std::string>& args) {
 int cmd_init(const std::vector<std::string>& args) {
     std::string org = get_arg_value(args, "--org");
     std::string token = get_arg_value(args, "--token");
+    bool token_from_arg = !token.empty();
 
-    if (org.empty() || token.empty()) {
-        std::cerr << "Error: --org and --token are required for init" << std::endl;
+    // Fall back to environment variable if --token not provided
+    if (token.empty()) {
+        token = get_token_from_env();
+    }
+
+    if (org.empty()) {
+        std::cerr << "Error: --org is required for init" << std::endl;
+        return 1;
+    }
+
+    if (token.empty()) {
+        std::cerr << "Error: GitHub token required. Either:" << std::endl;
+        std::cerr << "  - Set GITHUB_TOKEN environment variable, or" << std::endl;
+        std::cerr << "  - Use --token <token> argument" << std::endl;
         return 1;
     }
 
     feed::RepoFilter filter = parse_filter_args(args);
 
-    if (!save_config(org, token, filter)) {
+    // Only store token in config if provided via --token (not env var)
+    if (!save_config(org, token, filter, token_from_arg)) {
         std::cerr << "Error: Failed to save configuration" << std::endl;
         return 1;
     }
@@ -248,6 +287,10 @@ int cmd_init(const std::vector<std::string>& args) {
 
     std::cout << "Initialized feed for organization: " << org << std::endl;
     std::cout << "Database created: " << feed::config::DEFAULT_DB_PATH << std::endl;
+
+    if (!token_from_arg) {
+        std::cout << "Token: Using GITHUB_TOKEN environment variable" << std::endl;
+    }
 
     // Print filter summary
     if (!filter.languages.empty()) {
@@ -323,9 +366,19 @@ int cmd_config(const std::vector<std::string>& args) {
         return 1;
     }
 
+    // Check if token came from env var by reading raw config
+    std::ifstream file(get_config_path());
+    bool token_from_env = false;
+    if (file.is_open()) {
+        json raw_config;
+        file >> raw_config;
+        std::string stored_token = raw_config.value("token", "");
+        token_from_env = stored_token.empty();
+    }
+
     json config;
     config["org"] = org;
-    config["token"] = "***hidden***";
+    config["token"] = token_from_env ? "***from GITHUB_TOKEN env***" : "***stored in config***";
 
     json f;
     f["languages"] = std::vector<std::string>(filter.languages.begin(), filter.languages.end());
@@ -353,6 +406,15 @@ int cmd_add_repo(const std::vector<std::string>& args) {
         return 1;
     }
 
+    // Check if token is stored in config or from env var
+    std::ifstream file(get_config_path());
+    bool token_stored = false;
+    if (file.is_open()) {
+        json raw_config;
+        file >> raw_config;
+        token_stored = !raw_config.value("token", "").empty();
+    }
+
     // Collect all repo names from args (skip program name and command)
     std::vector<std::string> repos_to_add;
     for (size_t i = 2; i < args.size(); i++) {
@@ -373,7 +435,7 @@ int cmd_add_repo(const std::vector<std::string>& args) {
         std::cout << "Added: " << repo << std::endl;
     }
 
-    if (!save_config(org, token, filter)) {
+    if (!save_config(org, token, filter, token_stored)) {
         std::cerr << "Error: Failed to save configuration" << std::endl;
         return 1;
     }
@@ -389,6 +451,15 @@ int cmd_remove_repo(const std::vector<std::string>& args) {
     if (!load_config(org, token, filter)) {
         std::cerr << "Error: Not initialized. Run 'feed init' first." << std::endl;
         return 1;
+    }
+
+    // Check if token is stored in config or from env var
+    std::ifstream file(get_config_path());
+    bool token_stored = false;
+    if (file.is_open()) {
+        json raw_config;
+        file >> raw_config;
+        token_stored = !raw_config.value("token", "").empty();
     }
 
     // Collect all repo names from args (skip program name and command)
@@ -414,7 +485,7 @@ int cmd_remove_repo(const std::vector<std::string>& args) {
         }
     }
 
-    if (!save_config(org, token, filter)) {
+    if (!save_config(org, token, filter, token_stored)) {
         std::cerr << "Error: Failed to save configuration" << std::endl;
         return 1;
     }
