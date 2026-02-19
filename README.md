@@ -43,37 +43,53 @@ make test
 
 ## Usage
 
+### Authentication
+
+Feed requires a GitHub personal access token. You can provide it via environment variable (recommended) or command-line argument:
+
+```bash
+# Option 1: Environment variable (recommended - token not stored in config file)
+export GITHUB_FEED_TOKEN=ghp_xxx
+./build/feed init --org myorg --language go
+
+# Option 2: Command-line argument (token stored in ~/.feed_config)
+./build/feed init --org myorg --token ghp_xxx --language go
+```
+
+The token needs **read-only** access to repository metadata and contents. For a fine-grained PAT:
+- Repository permissions: **Metadata** (read) and **Contents** (read)
+
 ### Initialize with Filters
 
 For large organizations, use filters to narrow down which repositories to sync:
 
 ```bash
 # Filter by programming language
-./build/feed init --org myorg --token ghp_xxx --language go --language rust
+./build/feed init --org myorg --language go --language rust
 
 # Filter by GitHub topics
-./build/feed init --org myorg --token ghp_xxx --topic backend --topic api
+./build/feed init --org myorg --topic backend --topic api
 
 # Only sync repos with recent activity
-./build/feed init --org myorg --token ghp_xxx --active-days 30
+./build/feed init --org myorg --active-days 30
 
 # Limit number of repos
-./build/feed init --org myorg --token ghp_xxx --language python --max-repos 50
+./build/feed init --org myorg --language python --max-repos 50
 
 # Only sync specific repos
-./build/feed init --org myorg --token ghp_xxx --include api-server --include web-client
+./build/feed init --org myorg --include api-server --include web-client
 
 # Exclude certain repos
-./build/feed init --org myorg --token ghp_xxx --language go --exclude legacy-service
+./build/feed init --org myorg --language go --exclude legacy-service
 
 # Filter by minimum stars
-./build/feed init --org myorg --token ghp_xxx --min-stars 10
+./build/feed init --org myorg --min-stars 10
 
 # Exclude forks
-./build/feed init --org myorg --token ghp_xxx --no-forks
+./build/feed init --org myorg --no-forks
 
 # Combine multiple filters
-./build/feed init --org myorg --token ghp_xxx \
+./build/feed init --org myorg \
   --language go --language rust \
   --active-days 90 \
   --max-repos 100 \

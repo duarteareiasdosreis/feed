@@ -38,11 +38,11 @@ Commands:
   config                                        Show current configuration
 
 Environment Variables:
-  GITHUB_TOKEN          GitHub personal access token (recommended for security)
+  GITHUB_FEED_TOKEN          GitHub personal access token (recommended for security)
                         If set, --token argument becomes optional
 
 Filter Options (for init):
-  --token <token>       GitHub token (optional if GITHUB_TOKEN env var is set)
+  --token <token>       GitHub token (optional if GITHUB_FEED_TOKEN env var is set)
   --language <lang>     Filter by language (can specify multiple: --language go --language python)
   --topic <topic>       Filter by GitHub topic (can specify multiple)
   --include <repo>      Only sync specific repos (can specify multiple)
@@ -54,8 +54,8 @@ Filter Options (for init):
   --include-archived    Include archived repositories
 
 Examples:
-  # Initialize using GITHUB_TOKEN environment variable (recommended)
-  export GITHUB_TOKEN=ghp_xxx
+  # Initialize using GITHUB_FEED_TOKEN environment variable (recommended)
+  export GITHUB_FEED_TOKEN=ghp_xxx
   feed init --org myorg --language go --language rust --max-repos 50
 
   # Initialize with explicit token (stored in config file)
@@ -95,7 +95,7 @@ std::string get_config_path() {
 }
 
 std::string get_token_from_env() {
-    const char* token = std::getenv("GITHUB_TOKEN");
+    const char* token = std::getenv("GITHUB_FEED_TOKEN");
     return token ? token : "";
 }
 
@@ -268,7 +268,7 @@ int cmd_init(const std::vector<std::string>& args) {
 
     if (token.empty()) {
         std::cerr << "Error: GitHub token required. Either:" << std::endl;
-        std::cerr << "  - Set GITHUB_TOKEN environment variable, or" << std::endl;
+        std::cerr << "  - Set GITHUB_FEED_TOKEN environment variable, or" << std::endl;
         std::cerr << "  - Use --token <token> argument" << std::endl;
         return 1;
     }
@@ -289,7 +289,7 @@ int cmd_init(const std::vector<std::string>& args) {
     std::cout << "Database created: " << feed::config::DEFAULT_DB_PATH << std::endl;
 
     if (!token_from_arg) {
-        std::cout << "Token: Using GITHUB_TOKEN environment variable" << std::endl;
+        std::cout << "Token: Using GITHUB_FEED_TOKEN environment variable" << std::endl;
     }
 
     // Print filter summary
@@ -378,7 +378,7 @@ int cmd_config(const std::vector<std::string>& args) {
 
     json config;
     config["org"] = org;
-    config["token"] = token_from_env ? "***from GITHUB_TOKEN env***" : "***stored in config***";
+    config["token"] = token_from_env ? "***from GITHUB_FEED_TOKEN env***" : "***stored in config***";
 
     json f;
     f["languages"] = std::vector<std::string>(filter.languages.begin(), filter.languages.end());
