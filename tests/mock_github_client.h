@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <sstream>
 #include "storage.h"
+#include "github_client.h"
 
 namespace feed {
 namespace testing {
@@ -25,7 +26,7 @@ inline std::string current_timestamp() {
 class IGitHubClient {
 public:
     virtual ~IGitHubClient() = default;
-    virtual std::vector<std::string> list_repos() = 0;
+    virtual std::vector<std::string> list_repos(const RepoFilter& filter) = 0;
     virtual std::vector<Commit> fetch_commits(const std::string& repo,
                                                int limit,
                                                const std::string& since) = 0;
@@ -35,7 +36,7 @@ public:
 // Mock implementation
 class MockGitHubClient : public IGitHubClient {
 public:
-    MOCK_METHOD(std::vector<std::string>, list_repos, (), (override));
+    MOCK_METHOD(std::vector<std::string>, list_repos, (const RepoFilter& filter), (override));
     MOCK_METHOD(std::vector<Commit>, fetch_commits,
                 (const std::string& repo, int limit, const std::string& since),
                 (override));

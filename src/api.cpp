@@ -171,16 +171,17 @@ std::string get_repo_activity_summary(Storage& db, const std::string& repo, int 
 }
 
 std::string update_org_commits(GitHubClient& client, Storage& db,
-                                Classifier& classifier, SearchEngine& engine) {
+                                Classifier& classifier, SearchEngine& engine,
+                                const RepoFilter& filter) {
     try {
         int new_commits = 0;
         int repos_synced = 0;
         std::vector<std::string> errors;
 
-        // Get list of repositories
+        // Get list of repositories with filter
         std::vector<std::string> repos;
         try {
-            repos = client.list_repos();
+            repos = client.list_repos(filter);
         } catch (const std::exception& e) {
             json error;
             error["error"] = std::string("Failed to list repos: ") + e.what();

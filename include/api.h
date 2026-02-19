@@ -35,12 +35,13 @@ std::string get_repo_activity_summary(Storage& db,
                                        const std::string& repo,
                                        int days = 7);
 
-// Sync commits from all organization repositories
+// Sync commits from organization repositories (with optional filter)
 // Returns JSON object with sync results
 std::string update_org_commits(GitHubClient& client,
                                 Storage& db,
                                 Classifier& classifier,
-                                SearchEngine& engine);
+                                SearchEngine& engine,
+                                const RepoFilter& filter = RepoFilter{});
 
 // Rebuild search index (vocabulary and embeddings)
 // Returns JSON object with rebuild results

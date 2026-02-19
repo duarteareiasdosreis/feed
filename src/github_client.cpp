@@ -3,12 +3,13 @@
 #include <nlohmann/json.hpp>
 #include <curl/curl.h>
 #include <stdexcept>
-#include <sstream>
 #include <algorithm>
-#include <set>
 #include <regex>
 #include <thread>
 #include <chrono>
+#include <ctime>
+#include <iomanip>
+#include <sstream>
 
 namespace feed {
 
@@ -28,6 +29,33 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, std::string* us
     size_t total_size = size * nitems;
     userp->append(buffer, total_size);
     return total_size;
+}
+
+// Convert string to lowercase
+std::string to_lower(const std::string& s) {
+    std::string result = s;
+    std::transform(result.begin(), result.end(), result.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    return result;
+}
+
+// Parse ISO 8601 timestamp to time_t
+std::time_t parse_iso8601(const std::string& timestamp) {
+    if (timestamp.empty()) return 0;
+
+    std::tm tm = {};
+    std::istringstream ss(timestamp);
+    ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
+    if (ss.fail()) return 0;
+
+    return std::mktime(&tm);
+}
+
+// Get current time minus N days as time_t
+std::time_t days_ago(int days) {
+    auto now = std::chrono::system_clock::now();
+    auto then = now - std::chrono::hours(24 * days);
+    return std::chrono::system_clock::to_time_t(then);
 }
 
 }  // anonymous namespace
@@ -90,7 +118,6 @@ std::string GitHubClient::api_request(const std::string& endpoint) {
     curl_easy_cleanup(curl);
 
     if (http_code == 403) {
-        // Check for rate limiting
         try {
             json error = json::parse(response_body);
             if (error.contains("message") &&
@@ -116,8 +143,6 @@ std::string GitHubClient::api_request(const std::string& endpoint) {
 }
 
 std::string GitHubClient::parse_next_page_url(const std::string& link_header) {
-    // Parse Link header to find next page
-    // Format: <url>; rel="next", <url>; rel="last"
     std::regex next_regex("<([^>]+)>;\\s*rel=\"next\"");
     std::smatch match;
 
@@ -128,32 +153,171 @@ std::string GitHubClient::parse_next_page_url(const std::string& link_header) {
     return "";
 }
 
-std::vector<std::string> GitHubClient::list_repos() {
-    std::vector<std::string> repos;
+RepoInfo GitHubClient::parse_repo_info(const std::string& json_str) {
+    RepoInfo info;
+    json repo = json::parse(json_str);
+
+    info.name = repo.value("name", "");
+    info.language = repo.value("language", "");
+    info.pushed_at = repo.value("pushed_at", "");
+    info.archived = repo.value("archived", false);
+    info.fork = repo.value("fork", false);
+    info.stargazers_count = repo.value("stargazers_count", 0);
+
+    if (repo.contains("topics") && repo["topics"].is_array()) {
+        for (const auto& topic : repo["topics"]) {
+            info.topics.push_back(topic.get<std::string>());
+        }
+    }
+
+    return info;
+}
+
+bool GitHubClient::matches_filter(const RepoInfo& repo, const RepoFilter& filter) {
+    // Check explicit include list first
+    if (!filter.include_repos.empty()) {
+        if (filter.include_repos.find(repo.name) == filter.include_repos.end()) {
+            return false;
+        }
+    }
+
+    // Check explicit exclude list
+    if (filter.exclude_repos.find(repo.name) != filter.exclude_repos.end()) {
+        return false;
+    }
+
+    // Check archived
+    if (!filter.include_archived && repo.archived) {
+        return false;
+    }
+
+    // Check forks
+    if (!filter.include_forks && repo.fork) {
+        return false;
+    }
+
+    // Check minimum stars
+    if (filter.min_stars > 0 && repo.stargazers_count < filter.min_stars) {
+        return false;
+    }
+
+    // Check language (case-insensitive)
+    if (!filter.languages.empty()) {
+        std::string repo_lang = to_lower(repo.language);
+        bool found = false;
+        for (const auto& lang : filter.languages) {
+            if (to_lower(lang) == repo_lang) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            return false;
+        }
+    }
+
+    // Check topics (repo must have at least one matching topic)
+    if (!filter.topics.empty()) {
+        bool found = false;
+        for (const auto& repo_topic : repo.topics) {
+            std::string lower_topic = to_lower(repo_topic);
+            for (const auto& filter_topic : filter.topics) {
+                if (to_lower(filter_topic) == lower_topic) {
+                    found = true;
+                    break;
+                }
+            }
+            if (found) break;
+        }
+        if (!found) {
+            return false;
+        }
+    }
+
+    // Check activity (last push within N days)
+    if (filter.active_days > 0 && !repo.pushed_at.empty()) {
+        std::time_t pushed_time = parse_iso8601(repo.pushed_at);
+        std::time_t cutoff = days_ago(filter.active_days);
+        if (pushed_time < cutoff) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+std::vector<RepoInfo> GitHubClient::list_repos_detailed(const RepoFilter& filter) {
+    std::vector<RepoInfo> repos;
     std::string endpoint = "/orgs/" + org_ + "/repos?per_page=100&type=all";
 
-    while (!endpoint.empty()) {
+    int page = 0;
+    const int max_pages = 100;  // Safety limit: 100 pages * 100 repos = 10k max
+
+    while (!endpoint.empty() && page < max_pages) {
+        page++;
         std::string response = api_request(endpoint);
 
         try {
             json repo_list = json::parse(response);
 
-            for (const auto& repo : repo_list) {
-                if (repo.contains("name") && !repo["archived"].get<bool>()) {
-                    repos.push_back(repo["name"].get<std::string>());
+            if (repo_list.empty()) {
+                break;
+            }
+
+            for (const auto& repo_json : repo_list) {
+                RepoInfo info;
+                info.name = repo_json.value("name", "");
+                info.language = repo_json.value("language", "");
+                info.pushed_at = repo_json.value("pushed_at", "");
+                info.archived = repo_json.value("archived", false);
+                info.fork = repo_json.value("fork", false);
+                info.stargazers_count = repo_json.value("stargazers_count", 0);
+
+                if (repo_json.contains("topics") && repo_json["topics"].is_array()) {
+                    for (const auto& topic : repo_json["topics"]) {
+                        info.topics.push_back(topic.get<std::string>());
+                    }
+                }
+
+                if (matches_filter(info, filter)) {
+                    repos.push_back(info);
+
+                    // Check max repos limit
+                    if (filter.max_repos > 0 &&
+                        static_cast<int>(repos.size()) >= filter.max_repos) {
+                        return repos;
+                    }
                 }
             }
+
+            // Check if there are more pages
+            if (repo_list.size() < 100) {
+                break;
+            }
+
+            // Build next page URL
+            endpoint = "/orgs/" + org_ + "/repos?per_page=100&type=all&page=" +
+                       std::to_string(page + 1);
+
         } catch (json::exception& e) {
             throw std::runtime_error("Failed to parse repository list: " + std::string(e.what()));
         }
-
-        // Check for pagination (would need to capture headers in real implementation)
-        // For simplicity, we'll stop after first page in this implementation
-        // Full implementation would capture Link header from response
-        break;
     }
 
     return repos;
+}
+
+std::vector<std::string> GitHubClient::list_repos(const RepoFilter& filter) {
+    auto detailed = list_repos_detailed(filter);
+
+    std::vector<std::string> names;
+    names.reserve(detailed.size());
+
+    for (const auto& repo : detailed) {
+        names.push_back(repo.name);
+    }
+
+    return names;
 }
 
 std::vector<std::string> GitHubClient::extract_top_level_paths(const std::string& repo,
@@ -170,12 +334,11 @@ std::vector<std::string> GitHubClient::extract_top_level_paths(const std::string
             for (const auto& file : commit_detail["files"]) {
                 if (file.contains("filename")) {
                     std::string filename = file["filename"].get<std::string>();
-                    // Extract top-level directory
                     size_t slash_pos = filename.find('/');
                     if (slash_pos != std::string::npos) {
                         paths.insert(filename.substr(0, slash_pos));
                     } else {
-                        paths.insert("/");  // Root level file
+                        paths.insert("/");
                     }
                 }
             }
@@ -230,14 +393,9 @@ std::vector<Commit> GitHubClient::fetch_commits(const std::string& repo,
                     }
                 }
 
-                // Override author with login if available
                 if (c.contains("author") && !c["author"].is_null() && c["author"].contains("login")) {
                     commit.author = c["author"]["login"].get<std::string>();
                 }
-
-                // Note: Fetching top-level paths for each commit is expensive
-                // Skip for bulk fetches, could be done on-demand later
-                // commit.top_level_paths = extract_top_level_paths(repo, commit.commit_hash);
 
                 commits.push_back(commit);
                 fetched++;
@@ -246,9 +404,7 @@ std::vector<Commit> GitHubClient::fetch_commits(const std::string& repo,
             throw std::runtime_error("Failed to parse commits: " + std::string(e.what()));
         }
 
-        // Break after first page for simplicity
-        // Full implementation would parse Link header for pagination
-        break;
+        break;  // Single page for now
     }
 
     return commits;

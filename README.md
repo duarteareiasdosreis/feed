@@ -4,7 +4,7 @@ A lightweight local tool that scans GitHub organization repositories, stores com
 
 ## Features
 
-- **GitHub Integration**: Fetches commits from all repositories in a GitHub organization
+- **Repository Filtering**: Filter by language, topic, activity, stars, and more
 - **Automatic Classification**: Tags commits based on keywords (bugfix, optimization, refactor, etc.)
 - **Semantic Search**: Find similar commits using TF-IDF based similarity
 - **Local Storage**: SQLite database for efficient local storage and querying
@@ -43,17 +43,61 @@ make test
 
 ## Usage
 
-### Initialize
+### Initialize with Filters
+
+For large organizations, use filters to narrow down which repositories to sync:
 
 ```bash
-# Set up with your GitHub organization
-./build/feed init --org <organization> --token <github-token>
+# Filter by programming language
+./build/feed init --org myorg --token ghp_xxx --language go --language rust
+
+# Filter by GitHub topics
+./build/feed init --org myorg --token ghp_xxx --topic backend --topic api
+
+# Only sync repos with recent activity
+./build/feed init --org myorg --token ghp_xxx --active-days 30
+
+# Limit number of repos
+./build/feed init --org myorg --token ghp_xxx --language python --max-repos 50
+
+# Only sync specific repos
+./build/feed init --org myorg --token ghp_xxx --include api-server --include web-client
+
+# Exclude certain repos
+./build/feed init --org myorg --token ghp_xxx --language go --exclude legacy-service
+
+# Filter by minimum stars
+./build/feed init --org myorg --token ghp_xxx --min-stars 10
+
+# Exclude forks
+./build/feed init --org myorg --token ghp_xxx --no-forks
+
+# Combine multiple filters
+./build/feed init --org myorg --token ghp_xxx \
+  --language go --language rust \
+  --active-days 90 \
+  --max-repos 100 \
+  --no-forks
+```
+
+### Preview Matching Repositories
+
+Before syncing, preview which repos match your filters:
+
+```bash
+./build/feed list-repos
+```
+
+### View Current Configuration
+
+```bash
+./build/feed config
 ```
 
 ### Sync Commits
 
 ```bash
-# Fetch latest commits from all repositories
+# Fetch latest commits from filtered repositories
 ./build/feed sync
 ```
 
@@ -75,6 +119,20 @@ make test
 # List available classification tags
 ./build/feed tags
 ```
+
+## Filter Options Reference
+
+| Option | Description |
+|--------|-------------|
+| `--language <lang>` | Filter by programming language (can specify multiple) |
+| `--topic <topic>` | Filter by GitHub topic (can specify multiple) |
+| `--include <repo>` | Only sync these specific repos (can specify multiple) |
+| `--exclude <repo>` | Exclude these repos (can specify multiple) |
+| `--active-days N` | Only repos with commits in the last N days |
+| `--max-repos N` | Maximum number of repos to sync |
+| `--min-stars N` | Minimum star count |
+| `--no-forks` | Exclude forked repositories |
+| `--include-archived` | Include archived repositories (excluded by default) |
 
 ## Classification Tags
 
@@ -151,7 +209,7 @@ feed/
 ├── include/             # Header files
 │   ├── config.h         # Configuration constants
 │   ├── storage.h        # SQLite storage layer
-│   ├── github_client.h  # GitHub API client
+│   ├── github_client.h  # GitHub API client with filtering
 │   ├── classifier.h     # Keyword-based tagging
 │   ├── search.h         # TF-IDF search engine
 │   └── api.h            # Public API functions
