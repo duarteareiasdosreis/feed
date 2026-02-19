@@ -27,6 +27,8 @@ Commands:
   init --org <org> --token <token> [filters]  Initialize with GitHub organization
   sync                                         Sync commits from filtered repositories
   list-repos                                   List repositories matching current filters
+  add-repo <repo> [repo2] ...                  Add repo(s) to the include list
+  remove-repo <repo> [repo2] ...               Remove repo(s) from the include list
   recent [--repo <name>] [--limit N]          List recent commits
   similar "<query>" [--top N]                 Find similar commits
   tagged <tag> [--days N]                     Get commits by classification tag
@@ -55,6 +57,12 @@ Examples:
 
   # Initialize with specific repos only
   feed init --org myorg --token ghp_xxx --include api-server --include web-client
+
+  # Add more repos to the include list later
+  feed add-repo another-repo yet-another-repo
+
+  # Remove repos from the include list
+  feed remove-repo old-repo
 
   # Preview which repos match your filters
   feed list-repos
@@ -336,6 +344,85 @@ int cmd_config(const std::vector<std::string>& args) {
     return 0;
 }
 
+int cmd_add_repo(const std::vector<std::string>& args) {
+    std::string org, token;
+    feed::RepoFilter filter;
+
+    if (!load_config(org, token, filter)) {
+        std::cerr << "Error: Not initialized. Run 'feed init' first." << std::endl;
+        return 1;
+    }
+
+    // Collect all repo names from args (skip program name and command)
+    std::vector<std::string> repos_to_add;
+    for (size_t i = 2; i < args.size(); i++) {
+        if (args[i][0] != '-') {  // Skip flags
+            repos_to_add.push_back(args[i]);
+        }
+    }
+
+    if (repos_to_add.empty()) {
+        std::cerr << "Error: At least one repository name is required" << std::endl;
+        std::cerr << "Usage: feed add-repo <repo1> [repo2] [repo3] ..." << std::endl;
+        return 1;
+    }
+
+    // Add repos to include list
+    for (const auto& repo : repos_to_add) {
+        filter.include_repos.insert(repo);
+        std::cout << "Added: " << repo << std::endl;
+    }
+
+    if (!save_config(org, token, filter)) {
+        std::cerr << "Error: Failed to save configuration" << std::endl;
+        return 1;
+    }
+
+    std::cout << "\nTotal repos in include list: " << filter.include_repos.size() << std::endl;
+    return 0;
+}
+
+int cmd_remove_repo(const std::vector<std::string>& args) {
+    std::string org, token;
+    feed::RepoFilter filter;
+
+    if (!load_config(org, token, filter)) {
+        std::cerr << "Error: Not initialized. Run 'feed init' first." << std::endl;
+        return 1;
+    }
+
+    // Collect all repo names from args (skip program name and command)
+    std::vector<std::string> repos_to_remove;
+    for (size_t i = 2; i < args.size(); i++) {
+        if (args[i][0] != '-') {  // Skip flags
+            repos_to_remove.push_back(args[i]);
+        }
+    }
+
+    if (repos_to_remove.empty()) {
+        std::cerr << "Error: At least one repository name is required" << std::endl;
+        std::cerr << "Usage: feed remove-repo <repo1> [repo2] [repo3] ..." << std::endl;
+        return 1;
+    }
+
+    // Remove repos from include list
+    for (const auto& repo : repos_to_remove) {
+        if (filter.include_repos.erase(repo) > 0) {
+            std::cout << "Removed: " << repo << std::endl;
+        } else {
+            std::cout << "Not found: " << repo << std::endl;
+        }
+    }
+
+    if (!save_config(org, token, filter)) {
+        std::cerr << "Error: Failed to save configuration" << std::endl;
+        return 1;
+    }
+
+    std::cout << "\nTotal repos in include list: " << filter.include_repos.size() << std::endl;
+    return 0;
+}
+
 int cmd_sync(const std::vector<std::string>& args) {
     std::string org, token;
     feed::RepoFilter filter;
@@ -561,6 +648,10 @@ int main(int argc, char* argv[]) {
             return cmd_sync(args);
         } else if (command == "list-repos") {
             return cmd_list_repos(args);
+        } else if (command == "add-repo") {
+            return cmd_add_repo(args);
+        } else if (command == "remove-repo") {
+            return cmd_remove_repo(args);
         } else if (command == "config") {
             return cmd_config(args);
         } else if (command == "recent") {
