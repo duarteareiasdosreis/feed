@@ -454,12 +454,12 @@ int cmd_recent(const std::vector<std::string>& args) {
 }
 
 int cmd_similar(const std::vector<std::string>& args) {
-    if (args.size() < 2) {
+    if (args.size() < 3) {
         std::cerr << "Error: Query string is required" << std::endl;
         return 1;
     }
 
-    std::string query = args[1];
+    std::string query = args[2];  // args[0]=program, args[1]=command, args[2]=query
     int top_k = std::stoi(get_arg_value(args, "--top", "5"));
 
     feed::Storage db(feed::config::DEFAULT_DB_PATH);
@@ -472,13 +472,29 @@ int cmd_similar(const std::vector<std::string>& args) {
 }
 
 int cmd_tagged(const std::vector<std::string>& args) {
-    if (args.size() < 2) {
+    if (args.size() < 3) {
         std::cerr << "Error: Tag name is required" << std::endl;
         return 1;
     }
 
-    std::string tag = args[1];
+    std::string tag = args[2];  // args[0]=program, args[1]=command, args[2]=tag
     int days = std::stoi(get_arg_value(args, "--days", "7"));
+
+    // Validate tag exists
+    feed::Classifier classifier;
+    auto valid_tags = classifier.get_available_tags();
+    bool tag_exists = std::find(valid_tags.begin(), valid_tags.end(), tag) != valid_tags.end();
+
+    if (!tag_exists) {
+        std::cerr << "Error: Unknown tag '" << tag << "'" << std::endl;
+        std::cerr << "Available tags: ";
+        for (size_t i = 0; i < valid_tags.size(); i++) {
+            std::cerr << valid_tags[i];
+            if (i < valid_tags.size() - 1) std::cerr << ", ";
+        }
+        std::cerr << std::endl;
+        return 1;
+    }
 
     feed::Storage db(feed::config::DEFAULT_DB_PATH);
 
@@ -489,12 +505,12 @@ int cmd_tagged(const std::vector<std::string>& args) {
 }
 
 int cmd_summary(const std::vector<std::string>& args) {
-    if (args.size() < 2) {
+    if (args.size() < 3) {
         std::cerr << "Error: Repository name is required" << std::endl;
         return 1;
     }
 
-    std::string repo = args[1];
+    std::string repo = args[2];  // args[0]=program, args[1]=command, args[2]=repo
     int days = std::stoi(get_arg_value(args, "--days", "7"));
 
     feed::Storage db(feed::config::DEFAULT_DB_PATH);
