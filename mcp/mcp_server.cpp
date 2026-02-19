@@ -188,6 +188,19 @@ private:
             }
         };
 
+        // get_sync_status
+        tools_["get_sync_status"] = {
+            "get_sync_status",
+            "Get sync status (FAST, local-only). Returns: tracked repos, last sync time, commit counts, current filters. Use this to check what's being tracked before querying or deciding to add repos.",
+            {
+                {"type", "object"},
+                {"properties", json::object()}
+            },
+            [](const json& args) -> std::string {
+                return commands::get_sync_status();
+            }
+        };
+
         // init_feed
         tools_["init_feed"] = {
             "init_feed",

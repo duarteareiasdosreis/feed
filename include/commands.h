@@ -32,6 +32,10 @@ std::string init(const std::string& org,
 // Returns: {"org": "...", "token": "***", "filter": {...}}
 std::string get_config();
 
+// Get sync status (fast, local-only - no API calls)
+// Returns: {"last_sync": "...", "repos": [...], "filter": {...}, "total_commits": N}
+std::string get_sync_status();
+
 // Add repositories to include list
 // Returns: {"added": [...], "total_repos": N}
 std::string add_repos(const std::vector<std::string>& repos);

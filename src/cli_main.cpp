@@ -17,6 +17,7 @@ Usage: feed <command> [options]
 Commands:
   init --org <org> [--token <token>] [filters]  Initialize with GitHub organization
   sync                                           Sync commits from filtered repositories
+  status                                         Show sync status (fast, local data only)
   list-repos                                     List repositories matching current filters
   add-repo <repo> [repo2] ...                    Add repo(s) to the include list
   remove-repo <repo> [repo2] ...                 Remove repo(s) from the include list
@@ -199,6 +200,11 @@ int cmd_config(const std::vector<std::string>& args) {
     return handle_result(result);
 }
 
+int cmd_status(const std::vector<std::string>& args) {
+    std::string result = feed::commands::get_sync_status();
+    return handle_result(result);
+}
+
 int cmd_add_repo(const std::vector<std::string>& args) {
     std::vector<std::string> repos;
     for (size_t i = 2; i < args.size(); i++) {
@@ -323,6 +329,8 @@ int main(int argc, char* argv[]) {
             return cmd_remove_repo(args);
         } else if (command == "config") {
             return cmd_config(args);
+        } else if (command == "status") {
+            return cmd_status(args);
         } else if (command == "recent") {
             return cmd_recent(args);
         } else if (command == "similar") {

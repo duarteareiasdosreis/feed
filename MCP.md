@@ -10,10 +10,12 @@ Feed exposes its functionality as MCP tools that can be called by AI assistants 
 
 For MCP clients, follow this sequence:
 
-1. **Check configuration**: Call `get_config` to see if feed is initialized
+1. **Check status** (fast): Call `get_sync_status` to see tracked repos, last sync time, and commit counts
 2. **Initialize if needed**: If not initialized, call `init_feed` with the user's GitHub organization
-3. **Sync commits**: Call `sync_commits` to fetch commits from GitHub
+3. **Sync commits**: Call `sync_commits` to fetch commits from GitHub (only if needed)
 4. **Query data**: Use `get_recent_commits`, `find_similar_commits`, `get_tagged_commits`, or `get_repo_summary`
+
+**Tip:** Use `get_sync_status` instead of `get_config` to quickly check what repos are tracked - it's faster and includes commit counts.
 
 **Important:** Use small limits (10) for initial queries to avoid large responses that fill context.
 
@@ -349,6 +351,50 @@ Get current feed configuration. **Call this first to check if feed is initialize
     "min_stars": 0,
     "include_archived": false,
     "include_forks": true
+  }
+}
+```
+
+---
+
+### get_sync_status
+
+**FAST, local-only query** - no API calls. Returns tracked repos, last sync time, commit counts, and current filters. Use this to quickly check what's being tracked before querying or deciding to add repos.
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+**Example Response:**
+```json
+{
+  "org": "myorg",
+  "last_sync": "2024-01-15T10:30:00Z",
+  "repo_count": 3,
+  "total_commits": 450,
+  "repos": [
+    {
+      "name": "api-server",
+      "last_fetch": "2024-01-15T10:30:00Z",
+      "commit_count": 200
+    },
+    {
+      "name": "web-client",
+      "last_fetch": "2024-01-15T10:29:55Z",
+      "commit_count": 150
+    }
+  ],
+  "filter": {
+    "languages": ["go"],
+    "topics": [],
+    "include_repos": [],
+    "exclude_repos": [],
+    "active_days": 0,
+    "max_repos": 50
   }
 }
 ```

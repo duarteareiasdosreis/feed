@@ -43,6 +43,18 @@ public:
     std::string get_last_fetch_time(const std::string& repo);
     void set_last_fetch_time(const std::string& repo, const std::string& timestamp);
 
+    // Sync state
+    std::string get_last_sync_time();
+    void set_last_sync_time(const std::string& timestamp);
+
+    // Get all tracked repos with their last fetch times
+    struct TrackedRepo {
+        std::string name;
+        std::string last_fetch;
+        int commit_count;
+    };
+    std::vector<TrackedRepo> get_tracked_repos();
+
     // Query operations
     std::vector<Commit> get_recent_commits(const std::string& repo = "", int limit = 50);
     std::vector<Commit> get_commits_by_tag(const std::string& tag, int days = 7);

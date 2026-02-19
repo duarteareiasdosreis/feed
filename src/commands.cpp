@@ -231,6 +231,96 @@ std::string get_config() {
     return config.dump(2);
 }
 
+std::string get_sync_status() {
+    std::string org, token;
+    RepoFilter filter;
+
+    // Load config but don't require token (this is local-only)
+    std::ifstream file(get_config_path());
+    if (!file.is_open()) {
+        return make_error("Not initialized. Run 'feed init' first.");
+    }
+
+    try {
+        json config_json;
+        file >> config_json;
+        org = config_json.value("org", "");
+
+        if (org.empty()) {
+            return make_error("Not initialized. Run 'feed init' first.");
+        }
+
+        if (config_json.contains("filter")) {
+            const auto& f = config_json["filter"];
+            if (f.contains("languages")) {
+                for (const auto& lang : f["languages"]) {
+                    filter.languages.insert(lang.get<std::string>());
+                }
+            }
+            if (f.contains("topics")) {
+                for (const auto& topic : f["topics"]) {
+                    filter.topics.insert(topic.get<std::string>());
+                }
+            }
+            if (f.contains("include_repos")) {
+                for (const auto& repo : f["include_repos"]) {
+                    filter.include_repos.insert(repo.get<std::string>());
+                }
+            }
+            if (f.contains("exclude_repos")) {
+                for (const auto& repo : f["exclude_repos"]) {
+                    filter.exclude_repos.insert(repo.get<std::string>());
+                }
+            }
+            filter.active_days = f.value("active_days", 0);
+            filter.max_repos = f.value("max_repos", 0);
+        }
+
+        Storage db(config::DEFAULT_DB_PATH);
+
+        json result;
+        result["org"] = org;
+
+        // Get last sync time
+        std::string last_sync = db.get_last_sync_time();
+        result["last_sync"] = last_sync.empty() ? nullptr : json(last_sync);
+
+        // Get tracked repos with their status
+        auto tracked = db.get_tracked_repos();
+        json repos_array = json::array();
+        int total_commits = 0;
+
+        for (const auto& repo : tracked) {
+            json r;
+            r["name"] = repo.name;
+            r["last_fetch"] = repo.last_fetch;
+            r["commit_count"] = repo.commit_count;
+            repos_array.push_back(r);
+            total_commits += repo.commit_count;
+        }
+
+        result["repos"] = repos_array;
+        result["repo_count"] = tracked.size();
+        result["total_commits"] = total_commits;
+
+        // Include current filter settings
+        json f;
+        f["languages"] = std::vector<std::string>(filter.languages.begin(), filter.languages.end());
+        f["topics"] = std::vector<std::string>(filter.topics.begin(), filter.topics.end());
+        f["include_repos"] = std::vector<std::string>(filter.include_repos.begin(), filter.include_repos.end());
+        f["exclude_repos"] = std::vector<std::string>(filter.exclude_repos.begin(), filter.exclude_repos.end());
+        f["active_days"] = filter.active_days;
+        f["max_repos"] = filter.max_repos;
+        result["filter"] = f;
+
+        return result.dump(2);
+    } catch (const json::exception& e) {
+        return make_error("Invalid config file: " + std::string(e.what()));
+    } catch (const std::exception& e) {
+        return make_error(e.what());
+    }
+}
+
 std::string add_repos(const std::vector<std::string>& repos) {
     std::string org, token;
     RepoFilter filter;
@@ -436,6 +526,10 @@ std::string sync(ProgressCallback progress) {
             index_rebuilt = true;
         }
 
+        // Save last sync timestamp
+        std::string sync_time = current_timestamp();
+        db.set_last_sync_time(sync_time);
+
         json result;
         result["new_commits"] = new_commits;
         result["repos_synced"] = repos_synced;
@@ -444,6 +538,7 @@ std::string sync(ProgressCallback progress) {
         result["errors"] = errors;
         result["vocabulary_size"] = engine.vocab_size();
         result["index_rebuilt"] = index_rebuilt;
+        result["sync_time"] = sync_time;
 
         return result.dump(2);
 

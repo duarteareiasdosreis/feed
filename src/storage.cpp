@@ -217,6 +217,66 @@ void Storage::set_last_fetch_time(const std::string& repo, const std::string& ti
     sqlite3_finalize(stmt);
 }
 
+std::string Storage::get_last_sync_time() {
+    const char* sql = "SELECT value FROM search_state WHERE key = 'last_sync'";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        throw std::runtime_error("Failed to prepare statement");
+    }
+
+    std::string result;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char* text = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        if (text) result = text;
+    }
+
+    sqlite3_finalize(stmt);
+    return result;
+}
+
+void Storage::set_last_sync_time(const std::string& timestamp) {
+    const char* sql = "INSERT OR REPLACE INTO search_state (key, value) VALUES ('last_sync', ?)";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        throw std::runtime_error("Failed to prepare statement");
+    }
+
+    sqlite3_bind_text(stmt, 1, timestamp.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+}
+
+std::vector<Storage::TrackedRepo> Storage::get_tracked_repos() {
+    const char* sql = R"(
+        SELECT f.repo_name, f.last_fetch, COUNT(c.id) as commit_count
+        FROM fetch_state f
+        LEFT JOIN commits c ON f.repo_name = c.repo_name
+        GROUP BY f.repo_name
+        ORDER BY f.repo_name
+    )";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        throw std::runtime_error("Failed to prepare statement");
+    }
+
+    std::vector<TrackedRepo> repos;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        TrackedRepo repo;
+        const char* name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        const char* last_fetch = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        if (name) repo.name = name;
+        if (last_fetch) repo.last_fetch = last_fetch;
+        repo.commit_count = sqlite3_column_int(stmt, 2);
+        repos.push_back(repo);
+    }
+
+    sqlite3_finalize(stmt);
+    return repos;
+}
+
 std::vector<Commit> Storage::get_recent_commits(const std::string& repo, int limit) {
     std::string sql = "SELECT id, repo_name, commit_hash, author, timestamp, message, "
                       "top_level_paths, tags, embedding, created_at FROM commits ";
