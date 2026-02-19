@@ -56,8 +56,18 @@ export GITHUB_FEED_TOKEN=ghp_xxx
 ./build/feed init --org myorg --token ghp_xxx --language go
 ```
 
-The token needs **read-only** access to repository metadata and contents. For a fine-grained PAT:
-- Repository permissions: **Metadata** (read) and **Contents** (read)
+#### Token Types
+
+**Classic PAT (recommended for org access):**
+- Go to GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)
+- Select the `repo` scope (Full control of private repositories)
+- Classic tokens automatically have access to all repos you can access as a user
+
+**Fine-grained PAT:**
+- More secure but requires explicit repo selection
+- "All repositories" only includes repos you **own**, not org repos you have access to
+- To access private org repos, you must manually select each one under "Only select repositories"
+- Repository permissions needed: **Metadata** (read) and **Contents** (read)
 
 ### Initialize with Filters
 
