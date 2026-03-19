@@ -163,7 +163,9 @@ RepoInfo GitHubClient::parse_repo_info(const std::string& json_str) {
     if (repo.contains("language") && !repo["language"].is_null()) {
         info.language = repo["language"].get<std::string>();
     }
-    info.pushed_at = repo.value("pushed_at", "");
+    if (repo.contains("pushed_at") && !repo["pushed_at"].is_null()) {
+        info.pushed_at = repo["pushed_at"].get<std::string>();
+    }
     info.archived = repo.value("archived", false);
     info.fork = repo.value("fork", false);
     info.stargazers_count = repo.value("stargazers_count", 0);
@@ -260,7 +262,9 @@ RepoInfo GitHubClient::fetch_repo_info(const std::string& repo_name) {
     if (repo_json.contains("language") && !repo_json["language"].is_null()) {
         info.language = repo_json["language"].get<std::string>();
     }
-    info.pushed_at = repo_json.value("pushed_at", "");
+    if (repo_json.contains("pushed_at") && !repo_json["pushed_at"].is_null()) {
+        info.pushed_at = repo_json["pushed_at"].get<std::string>();
+    }
     info.archived = repo_json.value("archived", false);
     info.fork = repo_json.value("fork", false);
     info.stargazers_count = repo_json.value("stargazers_count", 0);
@@ -342,7 +346,10 @@ std::vector<RepoInfo> GitHubClient::list_repos_detailed(const RepoFilter& filter
                 if (repo_json.contains("language") && !repo_json["language"].is_null()) {
                     info.language = repo_json["language"].get<std::string>();
                 }
-                info.pushed_at = repo_json.value("pushed_at", "");
+                // pushed_at can be null for repos that have never been pushed to
+                if (repo_json.contains("pushed_at") && !repo_json["pushed_at"].is_null()) {
+                    info.pushed_at = repo_json["pushed_at"].get<std::string>();
+                }
                 info.archived = repo_json.value("archived", false);
                 info.fork = repo_json.value("fork", false);
                 info.stargazers_count = repo_json.value("stargazers_count", 0);
