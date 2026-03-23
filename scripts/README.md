@@ -4,7 +4,11 @@ Utility scripts for automating feed operations.
 
 ## generate-digest.sh
 
-Syncs commits and generates a markdown digest file, suitable for note-taking apps like Obsidian.
+Generates a daily briefing as a markdown file, suitable for note-taking apps like Obsidian. Includes:
+
+- **Commit activity** from tracked repos via the feed MCP
+- **OPEX health report** for a team (optional, via opex MCP)
+- **Meeting preparation notes** for the next day (optional, via Google Calendar MCP + TODO file)
 
 ### Usage
 
@@ -16,33 +20,46 @@ Syncs commits and generates a markdown digest file, suitable for note-taking app
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `-o, --output FILE` | Output markdown file path | `./feed-digest.md` |
-| `-l, --limit N` | Number of recent commits to include | `100` |
-| `-t, --title TITLE` | Digest title in the generated file | `Feed Digest` |
-| `--tags TAGS` | Comma-separated tags for frontmatter | `feed,daily-digest` |
+| `-d, --dir DIR` | Obsidian vault directory for output (required) | `$OBSIDIAN_VAULT` |
+| `-f, --folder FOLDER` | Subfolder within vault | `Feed Digests` |
+| `-l, --limit N` | Number of recent commits to analyze | `50` |
+| `--days N` | Only include commits from last N days | `1` |
+| `--opex-team TEAM` | Team name for OPEX health report | |
+| `--todo FILE` | Path to TODO markdown file for meeting prep | |
+| `--no-calendar` | Skip calendar/meeting preparation section | |
 | `-h, --help` | Show help message | |
 
 ### Environment Variables
 
 | Variable | Description |
 |----------|-------------|
-| `GITHUB_FEED_TOKEN` | GitHub personal access token (required). On macOS, can also be stored in Keychain. |
-| `FEED_DIR` | Feed installation directory. Defaults to the script's parent directory. |
+| `OBSIDIAN_VAULT` | Default Obsidian vault path (can be overridden with `-d`) |
+
+### MCP Dependencies
+
+| MCP Server | Required For | Tools Used |
+|------------|-------------|------------|
+| `feed` | Commit activity (always) | `sync_commits`, `get_recent_commits` |
+| `opex` | OPEX health report (`--opex-team`) | Various `get_*` tools filtered by team |
+| `google-calendar` | Meeting prep (unless `--no-calendar`) | Calendar event listing |
 
 ### Examples
 
 ```bash
-# Basic usage - outputs to ./feed-digest.md
-./scripts/generate-digest.sh
+# Basic usage - commit digest only
+./scripts/generate-digest.sh -d "$OBSIDIAN_VAULT"
 
-# Custom output for Obsidian vault
-./scripts/generate-digest.sh -o ~/Documents/Obsidian/Daily/feed.md
+# Full daily briefing with OPEX and meeting prep
+./scripts/generate-digest.sh -d "$OBSIDIAN_VAULT" \
+  --opex-team Shelob \
+  --todo ~/Documents/Obsidian\ Vault/TODO.md
 
-# Custom title and more commits
-./scripts/generate-digest.sh -t "Zendesk Ruby Digest" -l 200 -o ~/notes/zendesk.md
+# Just commits and OPEX, no calendar
+./scripts/generate-digest.sh -d "$OBSIDIAN_VAULT" \
+  --opex-team Shelob --no-calendar
 
-# With custom tags for frontmatter
-./scripts/generate-digest.sh --tags "work,ruby,daily" -o ~/notes/work-digest.md
+# Week-in-review with more commits
+./scripts/generate-digest.sh -d "$OBSIDIAN_VAULT" --days 7 -l 100
 ```
 
 ### macOS Keychain Integration
