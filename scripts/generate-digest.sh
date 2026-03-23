@@ -23,6 +23,24 @@
 
 set -e
 
+# Colors and formatting
+BOLD='\033[1m'
+DIM='\033[2m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+CHECK="${GREEN}✓${NC}"
+CROSS="${RED}✗${NC}"
+ARROW="${CYAN}→${NC}"
+
+step() { echo -e "${BOLD}${CYAN}[$1/$TOTAL_STEPS]${NC} $2"; }
+info() { echo -e "    ${ARROW} $1"; }
+ok()   { echo -e "    ${CHECK} $1"; }
+warn() { echo -e "    ${YELLOW}! $1${NC}"; }
+fail() { echo -e "    ${CROSS} ${RED}$1${NC}"; }
+
 # Defaults
 OBSIDIAN_DIR="${OBSIDIAN_VAULT:-}"
 FOLDER="Feed Digests"
@@ -74,60 +92,88 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Validate Obsidian directory
+# Count total steps for progress display
+TOTAL_STEPS=4
+if [ -n "$OPEX_TEAM" ]; then TOTAL_STEPS=$((TOTAL_STEPS)); fi
+if [ "$INCLUDE_CALENDAR" = true ]; then TOTAL_STEPS=$((TOTAL_STEPS)); fi
+
+# ── Step 1: Validate prerequisites ──────────────────────────────────
+echo ""
+echo -e "${BOLD}Feed Daily Digest Generator${NC}"
+echo -e "${DIM}──────────────────────────────────────${NC}"
+echo ""
+
+step 1 "Validating prerequisites..."
+
+if ! command -v claude &> /dev/null; then
+    fail "claude CLI not found"
+    echo "    Install Claude Code: https://docs.anthropic.com/claude-code"
+    exit 1
+fi
+ok "Claude CLI found"
+
 if [ -z "$OBSIDIAN_DIR" ]; then
-    echo "Error: Obsidian vault directory required"
-    echo "Use -d/--dir or set OBSIDIAN_VAULT environment variable"
+    fail "Obsidian vault directory required"
+    echo "    Use -d/--dir or set OBSIDIAN_VAULT environment variable"
     exit 1
 fi
 
 if [ ! -d "$OBSIDIAN_DIR" ]; then
-    echo "Error: Obsidian vault not found: $OBSIDIAN_DIR"
+    fail "Obsidian vault not found: $OBSIDIAN_DIR"
     exit 1
 fi
+ok "Obsidian vault: ${DIM}$OBSIDIAN_DIR${NC}"
 
-# Validate todo file if provided
-if [ -n "$TODO_FILE" ] && [ ! -f "$TODO_FILE" ]; then
-    echo "Warning: TODO file not found: $TODO_FILE (skipping meeting prep context)"
-    TODO_FILE=""
-fi
+# ── Step 2: Configure digest sections ───────────────────────────────
+step 2 "Configuring digest sections..."
 
-# Ensure output folder exists
-OUTPUT_DIR="$OBSIDIAN_DIR/$FOLDER"
-mkdir -p "$OUTPUT_DIR"
-
-# Generate filename with date
 DATE=$(date "+%Y-%m-%d")
 TOMORROW=$(date -v+1d "+%Y-%m-%d" 2>/dev/null || date -d "+1 day" "+%Y-%m-%d")
+
+OUTPUT_DIR="$OBSIDIAN_DIR/$FOLDER"
+mkdir -p "$OUTPUT_DIR"
 OUTPUT_FILE="$OUTPUT_DIR/$DATE.md"
 
-# Check if claude CLI is available
-if ! command -v claude &> /dev/null; then
-    echo "Error: claude CLI not found"
-    echo "Install Claude Code: https://docs.anthropic.com/claude-code"
-    exit 1
-fi
-
-echo "Generating digest for $DATE..."
-echo "Output: $OUTPUT_FILE"
-
-# Read TODO file content if provided
-TODO_CONTENT=""
-if [ -n "$TODO_FILE" ]; then
-    TODO_CONTENT=$(cat "$TODO_FILE")
-    echo "Including TODO context from: $TODO_FILE"
-fi
-
-# Build allowed tools list
+SECTIONS=""
 ALLOWED_TOOLS="mcp__feed__*"
+
+# Commits (always included)
+SECTIONS="${SECTIONS}commits"
+info "Commit activity: last ${BOLD}$DAYS${NC} day(s), up to ${BOLD}$LIMIT${NC} commits"
+
+# OPEX
 if [ -n "$OPEX_TEAM" ]; then
     ALLOWED_TOOLS="$ALLOWED_TOOLS,mcp__opex__*"
-    echo "Including OPEX report for team: $OPEX_TEAM"
+    SECTIONS="${SECTIONS}, opex"
+    info "OPEX health: team ${BOLD}$OPEX_TEAM${NC}"
 fi
+
+# Calendar + TODO
+TODO_CONTENT=""
 if [ "$INCLUDE_CALENDAR" = true ]; then
     ALLOWED_TOOLS="$ALLOWED_TOOLS,mcp__google-calendar__*"
-    echo "Including calendar events for meeting prep"
+    SECTIONS="${SECTIONS}, calendar"
+    info "Meeting prep: events for ${BOLD}$TOMORROW${NC}"
 fi
+
+if [ -n "$TODO_FILE" ]; then
+    if [ -f "$TODO_FILE" ]; then
+        TODO_CONTENT=$(cat "$TODO_FILE")
+        TODO_COUNT=$(grep -c '^\- \[ \]' "$TODO_FILE" 2>/dev/null || echo "0")
+        SECTIONS="${SECTIONS}+todos"
+        info "TODO context: ${BOLD}$TODO_COUNT${NC} open items from ${DIM}$(basename "$TODO_FILE")${NC}"
+    else
+        warn "TODO file not found: $TODO_FILE (skipping)"
+        TODO_FILE=""
+    fi
+fi
+
+echo ""
+ok "Sections: ${BOLD}$SECTIONS${NC}"
+
+# ── Step 3: Build prompt ────────────────────────────────────────────
+step 3 "Building prompt..."
+info "Output: ${DIM}$OUTPUT_FILE${NC}"
 
 # Build the prompt for Claude
 PROMPT="You have access to several MCP tools. Today is $DATE and tomorrow is $TOMORROW.
@@ -225,7 +271,30 @@ Keep it concise but informative - this is a daily briefing for staying on top of
 
 Output ONLY the markdown content, nothing else."
 
-# Run Claude with the prompt and write directly to file
-claude -p "$PROMPT" --allowedTools "$ALLOWED_TOOLS" > "$OUTPUT_FILE"
+# ── Step 4: Generate digest with Claude ─────────────────────────────
+step 4 "Generating digest with Claude..."
+info "This may take a minute or two"
 
-echo "Digest generated: $OUTPUT_FILE"
+START_TIME=$(date +%s)
+
+if claude -p "$PROMPT" --allowedTools "$ALLOWED_TOOLS" > "$OUTPUT_FILE" 2>/dev/null; then
+    END_TIME=$(date +%s)
+    ELAPSED=$((END_TIME - START_TIME))
+    LINES=$(wc -l < "$OUTPUT_FILE" | tr -d ' ')
+    SIZE=$(wc -c < "$OUTPUT_FILE" | tr -d ' ')
+
+    echo ""
+    echo -e "${BOLD}${GREEN}Digest generated successfully!${NC}"
+    echo -e "${DIM}──────────────────────────────────────${NC}"
+    info "File: ${BOLD}$OUTPUT_FILE${NC}"
+    info "Size: ${BOLD}${LINES}${NC} lines (${SIZE} bytes)"
+    info "Time: ${BOLD}${ELAPSED}s${NC}"
+    echo ""
+else
+    END_TIME=$(date +%s)
+    ELAPSED=$((END_TIME - START_TIME))
+    echo ""
+    fail "Claude exited with an error after ${ELAPSED}s"
+    fail "Check the output file for partial content: $OUTPUT_FILE"
+    exit 1
+fi
