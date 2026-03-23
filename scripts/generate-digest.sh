@@ -92,10 +92,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Count total steps for progress display
 TOTAL_STEPS=4
-if [ -n "$OPEX_TEAM" ]; then TOTAL_STEPS=$((TOTAL_STEPS)); fi
-if [ "$INCLUDE_CALENDAR" = true ]; then TOTAL_STEPS=$((TOTAL_STEPS)); fi
 
 # ── Step 1: Validate prerequisites ──────────────────────────────────
 echo ""
@@ -135,7 +132,6 @@ mkdir -p "$OUTPUT_DIR"
 OUTPUT_FILE="$OUTPUT_DIR/$DATE.md"
 
 SECTIONS=""
-ALLOWED_TOOLS="mcp__feed__*"
 
 # Commits (always included)
 SECTIONS="${SECTIONS}commits"
@@ -143,7 +139,6 @@ info "Commit activity: last ${BOLD}$DAYS${NC} day(s), up to ${BOLD}$LIMIT${NC} c
 
 # OPEX
 if [ -n "$OPEX_TEAM" ]; then
-    ALLOWED_TOOLS="$ALLOWED_TOOLS,mcp__opex__*"
     SECTIONS="${SECTIONS}, opex"
     info "OPEX health: team ${BOLD}$OPEX_TEAM${NC}"
 fi
@@ -151,7 +146,6 @@ fi
 # Calendar + TODO
 TODO_CONTENT=""
 if [ "$INCLUDE_CALENDAR" = true ]; then
-    ALLOWED_TOOLS="$ALLOWED_TOOLS,mcp__google-calendar__*"
     SECTIONS="${SECTIONS}, calendar"
     info "Meeting prep: events for ${BOLD}$TOMORROW${NC}"
 fi
@@ -171,45 +165,53 @@ fi
 echo ""
 ok "Sections: ${BOLD}$SECTIONS${NC}"
 
-# ── Step 3: Build prompt ────────────────────────────────────────────
-step 3 "Building prompt..."
+# ── Step 3: Generate sections in parallel ────────────────────────────
+step 3 "Generating sections in parallel..."
 info "Output: ${DIM}$OUTPUT_FILE${NC}"
 
-# Build the prompt for Claude
-PROMPT="You have access to several MCP tools. Today is $DATE and tomorrow is $TOMORROW.
-Please generate a daily digest with the following sections:
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
 
----
+SECTION_PIDS=()
+SECTION_NAMES=()
+SECTION_FILES=()
 
-## SECTION 1: Commit Activity
+# Shared formatting instructions
+FORMAT_INSTRUCTIONS="Output ONLY clean Obsidian-compatible markdown (no frontmatter, no fences). Keep it concise but informative."
+
+# ── Section: Commits (always) ────────────────────────────────────────
+COMMITS_PROMPT="You have access to the feed MCP tools. Today is $DATE.
 
 1. First sync the latest commits using sync_commits
 2. Then get recent commits (limit: $LIMIT) using get_recent_commits
 3. Analyze the commits and create a well-organized summary
 
-For the commit section:
-- Group commits logically by THEME or AREA (not just by repo), such as:
+Group commits logically by THEME or AREA (not just by repo), such as:
   - Infrastructure & DevOps
   - New Features
   - Bug Fixes & Maintenance
   - Documentation
   - Refactoring & Tech Debt
   - etc.
-- For each group, provide:
+For each group, provide:
   - A brief summary of the changes in that area
   - Bullet points with the key commits (author, repo, concise description)
-- Highlight any notable patterns, large changes, or items worth attention
-- Focus on the last $DAYS day(s) of activity"
+Highlight any notable patterns, large changes, or items worth attention.
+Focus on the last $DAYS day(s) of activity.
 
-# Add OPEX section if team specified
+$FORMAT_INSTRUCTIONS"
+
+claude -p "$COMMITS_PROMPT" --allowedTools "mcp__feed__*" > "$TMPDIR/commits.md" 2>/dev/null &
+SECTION_PIDS+=($!)
+SECTION_NAMES+=("commits")
+SECTION_FILES+=("$TMPDIR/commits.md")
+info "Started: ${BOLD}commits${NC} (feed sync + analysis)"
+
+# ── Section: OPEX (optional) ─────────────────────────────────────────
 if [ -n "$OPEX_TEAM" ]; then
-    PROMPT="$PROMPT
+    OPEX_PROMPT="You have access to the OPEX MCP tools. Today is $DATE.
 
----
-
-## SECTION 2: OPEX Health Report ($OPEX_TEAM)
-
-Query the OPEX MCP tools for team '$OPEX_TEAM' (use the team filter). Check the following and report ONLY items that need attention (non-zero counts or items approaching/breaching SLA):
+Query the OPEX tools for team '$OPEX_TEAM' (use the team filter). Check the following and report ONLY items that need attention (non-zero counts or items approaching/breaching SLA):
 - Incidents (get_incidents)
 - SLOs with depleted error budgets (get_slos)
 - Remediation items out of SLA (get_remediation_items)
@@ -220,22 +222,26 @@ Query the OPEX MCP tools for team '$OPEX_TEAM' (use the team filter). Check the 
 - Repository findings (get_repository_findings)
 - Jira escalated issues (get_jira_escalated_issues)
 
-Format this section as:
+Format as:
 - A quick health summary (e.g. 'All clear' or 'X items need attention')
 - For each area with issues, list what's out of SLA or in warning with brief details
-- End with a 'Keep in Mind' subsection highlighting the most urgent items and recommended actions for the day"
+- End with a 'Keep in Mind' subsection highlighting the most urgent items and recommended actions
+
+$FORMAT_INSTRUCTIONS"
+
+    claude -p "$OPEX_PROMPT" --allowedTools "mcp__opex__*" > "$TMPDIR/opex.md" 2>/dev/null &
+    SECTION_PIDS+=($!)
+    SECTION_NAMES+=("opex")
+    SECTION_FILES+=("$TMPDIR/opex.md")
+    info "Started: ${BOLD}opex${NC} (9 health checks for $OPEX_TEAM)"
 fi
 
-# Add calendar/meeting prep section
+# ── Section: Calendar + Meeting Prep (optional) ──────────────────────
 if [ "$INCLUDE_CALENDAR" = true ]; then
-    PROMPT="$PROMPT
+    MEETING_PROMPT="You have access to Google Calendar MCP tools. Today is $DATE and tomorrow is $TOMORROW.
 
----
-
-## SECTION 3: Meeting Preparation (Tomorrow: $TOMORROW)
-
-Use the Google Calendar MCP tools to fetch calendar events for tomorrow ($TOMORROW).
-If the calendar tools are not available, skip this section gracefully and note that calendar access was unavailable.
+Fetch calendar events for tomorrow ($TOMORROW).
+If the calendar tools are not available, note that calendar access was unavailable and provide general prep advice.
 
 For each meeting that likely requires preparation:
 - List the meeting name, time, and attendees (if available)
@@ -243,7 +249,7 @@ For each meeting that likely requires preparation:
 - For scrum ceremonies, suggest an agenda or talking points"
 
     if [ -n "$TODO_CONTENT" ]; then
-        PROMPT="$PROMPT
+        MEETING_PROMPT="$MEETING_PROMPT
 - Cross-reference with the TODO list below to suggest relevant items to bring up
 - For sprint planning or refinement, suggest which open TODOs could be discussed or prioritized
 
@@ -252,49 +258,100 @@ For each meeting that likely requires preparation:
 $TODO_CONTENT
 \`\`\`"
     fi
+
+    MEETING_PROMPT="$MEETING_PROMPT
+
+$FORMAT_INSTRUCTIONS"
+
+    claude -p "$MEETING_PROMPT" --allowedTools "mcp__google-calendar__*" > "$TMPDIR/meetings.md" 2>/dev/null &
+    SECTION_PIDS+=($!)
+    SECTION_NAMES+=("meetings")
+    SECTION_FILES+=("$TMPDIR/meetings.md")
+    info "Started: ${BOLD}meetings${NC} (calendar + TODO cross-ref)"
 fi
 
-# Final formatting instructions
-PROMPT="$PROMPT
+echo ""
+info "Waiting for ${BOLD}${#SECTION_PIDS[@]}${NC} parallel sections..."
 
+# ── Wait for all sections ────────────────────────────────────────────
+START_TIME=$(date +%s)
+FAILURES=0
+
+for i in "${!SECTION_PIDS[@]}"; do
+    PID=${SECTION_PIDS[$i]}
+    NAME=${SECTION_NAMES[$i]}
+    FILE=${SECTION_FILES[$i]}
+    SECTION_START=$START_TIME
+
+    if wait "$PID"; then
+        NOW=$(date +%s)
+        ELAPSED=$((NOW - START_TIME))
+        ok "${NAME} completed (${ELAPSED}s elapsed)"
+    else
+        NOW=$(date +%s)
+        ELAPSED=$((NOW - START_TIME))
+        fail "${NAME} failed (${ELAPSED}s elapsed)"
+        FAILURES=$((FAILURES + 1))
+    fi
+done
+
+if [ "$FAILURES" -gt 0 ]; then
+    warn "$FAILURES section(s) failed — digest may be incomplete"
+fi
+
+# ── Step 4: Assemble final digest ────────────────────────────────────
+step 4 "Assembling final digest..."
+
+{
+    cat <<EOF
+---
+title: "Daily Digest - $DATE"
+date: $DATE
+tags: [feed, digest, daily-log]
 ---
 
-## OUTPUT FORMAT
+# Daily Digest — $(date "+%A %Y-%m-%d")
 
-Format the output as a clean Obsidian-compatible markdown page with:
-- YAML frontmatter with: date, tags (feed, digest, daily-log), and a generated title
-- An executive summary (2-3 sentences) covering the most important points across all sections
-- Then each section with clear headers
-- End with a 'Key Takeaways' section summarizing action items across all sections
+EOF
 
-Keep it concise but informative - this is a daily briefing for staying on top of work.
+    # Commits section
+    if [ -s "$TMPDIR/commits.md" ]; then
+        echo "## Commit Activity"
+        echo ""
+        cat "$TMPDIR/commits.md"
+        echo ""
+    fi
 
-Output ONLY the markdown content, nothing else."
+    # OPEX section
+    if [ -n "$OPEX_TEAM" ] && [ -s "$TMPDIR/opex.md" ]; then
+        echo "---"
+        echo ""
+        echo "## OPEX Health Report ($OPEX_TEAM)"
+        echo ""
+        cat "$TMPDIR/opex.md"
+        echo ""
+    fi
 
-# ── Step 4: Generate digest with Claude ─────────────────────────────
-step 4 "Generating digest with Claude..."
-info "This may take a minute or two"
+    # Meeting prep section
+    if [ "$INCLUDE_CALENDAR" = true ] && [ -s "$TMPDIR/meetings.md" ]; then
+        echo "---"
+        echo ""
+        echo "## Meeting Preparation (Tomorrow: $TOMORROW)"
+        echo ""
+        cat "$TMPDIR/meetings.md"
+        echo ""
+    fi
+} > "$OUTPUT_FILE"
 
-START_TIME=$(date +%s)
+END_TIME=$(date +%s)
+TOTAL_ELAPSED=$((END_TIME - START_TIME))
+LINES=$(wc -l < "$OUTPUT_FILE" | tr -d ' ')
+SIZE=$(wc -c < "$OUTPUT_FILE" | tr -d ' ')
 
-if claude -p "$PROMPT" --allowedTools "$ALLOWED_TOOLS" > "$OUTPUT_FILE" 2>/dev/null; then
-    END_TIME=$(date +%s)
-    ELAPSED=$((END_TIME - START_TIME))
-    LINES=$(wc -l < "$OUTPUT_FILE" | tr -d ' ')
-    SIZE=$(wc -c < "$OUTPUT_FILE" | tr -d ' ')
-
-    echo ""
-    echo -e "${BOLD}${GREEN}Digest generated successfully!${NC}"
-    echo -e "${DIM}──────────────────────────────────────${NC}"
-    info "File: ${BOLD}$OUTPUT_FILE${NC}"
-    info "Size: ${BOLD}${LINES}${NC} lines (${SIZE} bytes)"
-    info "Time: ${BOLD}${ELAPSED}s${NC}"
-    echo ""
-else
-    END_TIME=$(date +%s)
-    ELAPSED=$((END_TIME - START_TIME))
-    echo ""
-    fail "Claude exited with an error after ${ELAPSED}s"
-    fail "Check the output file for partial content: $OUTPUT_FILE"
-    exit 1
-fi
+echo ""
+echo -e "${BOLD}${GREEN}Digest generated successfully!${NC}"
+echo -e "${DIM}──────────────────────────────────────${NC}"
+info "File: ${BOLD}$OUTPUT_FILE${NC}"
+info "Size: ${BOLD}${LINES}${NC} lines (${SIZE} bytes)"
+info "Time: ${BOLD}${TOTAL_ELAPSED}s${NC} (${#SECTION_PIDS[@]} sections in parallel)"
+echo ""
